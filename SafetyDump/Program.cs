@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System.Text;
@@ -44,10 +43,7 @@ namespace SafetyDump
                 return;
             }
             
-            var arrays = new HashSet<WriteSet>();
-            var maxOffset = 0;
-            var maxOffsetLength = 0;
-
+            var byteArray = new byte[60 * 1024 * 1024];
             var callbackPtr = new Internals.MinidumpCallbackRoutine((param, input, output) =>
             {
                 var inputStruct = Marshal.PtrToStructure<Internals.MINIDUMP_CALLBACK_INPUT>(input);
@@ -60,14 +56,11 @@ namespace SafetyDump
                         return true;
                     case Internals.MINIDUMP_CALLBACK_TYPE.IoWriteAllCallback:
                         var ioStruct = inputStruct.Io;
-                        var bytes = new byte[ioStruct.BufferBytes];
-                        Marshal.Copy(ioStruct.Buffer, bytes, 0, ioStruct.BufferBytes);
-                        arrays.Add(new WriteSet((int)ioStruct.Offset, ioStruct.BufferBytes, bytes));
-                        if ((int)ioStruct.Offset > maxOffset)
+                        if ((int)ioStruct.Offset + ioStruct.BufferBytes >= byteArray.Length)
                         {
-                            maxOffset = (int)(ioStruct.Offset);
-                            maxOffsetLength = ioStruct.BufferBytes;
+                           Array.Resize(ref byteArray, byteArray.Length * 2); 
                         }
+                        Marshal.Copy(ioStruct.Buffer, byteArray, (int)ioStruct.Offset, ioStruct.BufferBytes);
                         outputStruct.status = Internals.HRESULT.S_OK;
                         Marshal.StructureToPtr(outputStruct, output, true);
                         return true;
@@ -92,12 +85,7 @@ namespace SafetyDump
             if (Internals.MiniDumpWriteDump(targetProcessHandle, targetProcessId, IntPtr.Zero,(uint) 2, IntPtr.Zero, IntPtr.Zero, callbackInfoPtr))
             {
                 Console.OutputEncoding = Encoding.UTF8;
-                var dump = new byte[maxOffset + maxOffsetLength];
-                foreach (var writeSet in arrays)
-                {
-                    Array.Copy(writeSet.Bytes, 0, dump, writeSet.Offset, writeSet.Length);                    
-                }
-                Console.Write(Convert.ToBase64String((dump)));
+                Console.Write(Convert.ToBase64String((byteArray)));
                 return;
     
             }
@@ -134,20 +122,5 @@ namespace SafetyDump
                 Minidump(pid);
             }
         }
-    }
-
-    internal class WriteSet
-    {
-        internal int Offset { get; }
-        internal int Length { get; }
-        internal byte[] Bytes { get; }
-
-        public WriteSet(int offset, int length, byte[] bytes)
-        {
-            this.Offset = offset;
-            this.Length = length;
-            this.Bytes = bytes;
-        }
-
     }
 }
