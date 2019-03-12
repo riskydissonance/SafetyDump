@@ -97,12 +97,6 @@ namespace SafetyDump
         private static void Main(string[] args)
         {
 
-            if (IntPtr.Size != 8)
-            {
-                Console.WriteLine("\n[-] Process is not 64-bit!\n");
-                return;
-            }
-
             if (args.Length == 0)
             {
                 Minidump();
