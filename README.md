@@ -12,7 +12,13 @@ See its integration with https://github.com/nettitude/PoshC2 for how it can be u
 ## Usage
 
 Running the compiled binary without any arguments will find and dump lsass.exe.
+
+```
 ./SafetyDump.exe
+```
 
 Passing a PID to the program will instead dump that process.
+
+```
 ./SafetyDump.exe <processIdToDump>
+```
