@@ -107,7 +107,7 @@ namespace SafetyDump
 
                 if (Internals.MiniDumpWriteDump(targetProcessHandle, targetProcessId, IntPtr.Zero, (uint)2, IntPtr.Zero, IntPtr.Zero, callbackInfoPtr))
                 {
-                    Console.OutputEncoding = Encoding.UTF8;
+                    //Console.OutputEncoding = Encoding.UTF8;
                     Console.Write(Convert.ToBase64String((byteArray)));
                     return;
 
